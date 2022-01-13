@@ -4,6 +4,7 @@
 use log::error;
 use pixels::{Pixels, SurfaceTexture};
 use std::rc::Rc;
+use web_sys;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -12,12 +13,12 @@ use winit_input_helper::WinitInputHelper;
 
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
-const BOX_SIZE: i16 = 64;
 
 /// Representation of the application state. In this example, a box will bounce around the screen.
-struct World {
-    box_x: i16,
-    box_y: i16,
+struct Particle {
+    x: i16,
+    y: i16,
+    r: i16,
     velocity_x: i16,
     velocity_y: i16,
 }
@@ -27,14 +28,12 @@ fn main() {
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init_with_level(log::Level::Trace).expect("error initializing logger");
-
         wasm_bindgen_futures::spawn_local(run());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-
         pollster::block_on(run());
     }
 }
@@ -44,7 +43,7 @@ async fn run() {
     let window = {
         let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
         WindowBuilder::new()
-            .with_title("Hello Pixels + Web")
+            .with_title("P.E.S.")
             .with_inner_size(size)
             .with_min_inner_size(size)
             .build(&event_loop)
@@ -105,7 +104,8 @@ async fn run() {
             .await
             .expect("Pixels error")
     };
-    let mut world = World::new();
+
+    let mut world = Particle::new(16 as i16, 16 as i16);
 
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
@@ -141,12 +141,13 @@ async fn run() {
     });
 }
 
-impl World {
+impl Particle {
     /// Create a new `World` instance that can draw a moving box.
-    fn new() -> Self {
+    fn new(x: i16, y: i16) -> Self {
         Self {
-            box_x: 24,
-            box_y: 16,
+            x,
+            y,
+            r: 6,
             velocity_x: 1,
             velocity_y: 1,
         }
@@ -154,15 +155,23 @@ impl World {
 
     /// Update the `World` internal state; bounce the box around the screen.
     fn update(&mut self) {
-        if self.box_x <= 0 || self.box_x + BOX_SIZE > WIDTH as i16 {
+        use winit_input_helper::WinitInputHelper;
+        let mut input = WinitInputHelper::new();
+
+        input.mouse().map(|(mx, my)| {
+            self.x = mx as i16;
+            self.y = my as i16;
+        });
+
+        if self.x + self.r > WIDTH as i16 || self.x - self.r < 0 {
             self.velocity_x *= -1;
         }
-        if self.box_y <= 0 || self.box_y + BOX_SIZE > HEIGHT as i16 {
+        if self.y + self.r > HEIGHT as i16 || self.y - self.r < 0 {
             self.velocity_y *= -1;
         }
 
-        self.box_x += self.velocity_x;
-        self.box_y += self.velocity_y;
+        self.x += self.velocity_x;
+        self.y += self.velocity_y;
     }
 
     /// Draw the `World` state to the frame buffer.
@@ -173,15 +182,13 @@ impl World {
             let x = (i % WIDTH as usize) as i16;
             let y = (i / WIDTH as usize) as i16;
 
-            let inside_the_box = x >= self.box_x
-                && x < self.box_x + BOX_SIZE
-                && y >= self.box_y
-                && y < self.box_y + BOX_SIZE;
+            let inside_the_box =
+                (((x - self.x).pow(2) + (y - self.y).pow(2)) as f32).sqrt() < self.r as f32;
 
             let rgba = if inside_the_box {
                 [0x5e, 0x48, 0xe8, 0xff]
             } else {
-                [0x48, 0xb2, 0xe8, 0xff]
+                [0x48, 0xb2, 0xe8, 0x00]
             };
 
             pixel.copy_from_slice(&rgba);
