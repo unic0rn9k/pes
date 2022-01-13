@@ -4,7 +4,7 @@
 use log::error;
 use pixels::{Pixels, SurfaceTexture};
 use std::rc::Rc;
-use web_sys;
+//use web_sys;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -158,10 +158,9 @@ impl Particle {
         use winit_input_helper::WinitInputHelper;
         let mut input = WinitInputHelper::new();
 
-        input.mouse_diff().map(|(mx, my)| {
-            self.x = mx as i16;
-            self.y = my as i16;
-        });
+        let (mx, my) = input.mouse_diff();
+        self.x = mx as i16;
+        self.y = my as i16;
 
         if self.x + self.r > WIDTH as i16 || self.x - self.r < 0 {
             self.velocity_x *= -1;
