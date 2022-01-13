@@ -158,9 +158,9 @@ impl Particle {
         use winit_input_helper::WinitInputHelper;
         let mut input = WinitInputHelper::new();
 
-        input.mouse().map(|(mx, my){
-        self.x = (mx as i16).min(WIDTH-20);
-        self.y = (my as i16).min(HEIGHT-20);
+        input.mouse().map(|(mx, my)| {
+            self.x = (mx as i16).min(WIDTH - 20);
+            self.y = (my as i16).min(HEIGHT - 20);
         });
 
         if self.x + self.r > WIDTH as i16 || self.x - self.r < 0 {
