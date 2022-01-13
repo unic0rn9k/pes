@@ -183,7 +183,7 @@ impl Particle {
             let y = (i / WIDTH as usize) as i16;
 
             let inside_the_box =
-                (((x - self.x).pow(2) + (y - self.y).pow(2)) as f32).sqrt() < self.r as f32;
+                (((x - self.x).pow(2) + (y - self.y).pow(2)) as f64).sqrt() < self.r as f64;
 
             let rgba = if inside_the_box {
                 [0x5e, 0x48, 0xe8, 0xff]
