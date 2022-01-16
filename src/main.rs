@@ -1,5 +1,4 @@
 #![deny(clippy::all)]
-#![forbid(unsafe_code)]
 
 use log::error;
 use pixels::{Pixels, SurfaceTexture};
@@ -16,11 +15,12 @@ const HEIGHT: u32 = 240;
 
 /// Representation of the application state. In this example, a box will bounce around the screen.
 struct Particle {
-    x: i16,
-    y: i16,
-    r: i16,
-    velocity_x: i16,
-    velocity_y: i16,
+    x: f32,
+    y: f32,
+    r: f32,
+    dx: f32,
+    dy: f32,
+    rgba: [u8; 4],
 }
 
 fn main() {
@@ -105,12 +105,24 @@ async fn run() {
             .expect("Pixels error")
     };
 
-    let mut world = Particle::new(16 as i16, 16 as i16);
-
+    let mut particle = Particle::new(16, 16);
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
-            world.draw(pixels.get_frame());
+            input.mouse().map(|(mx, my)| {
+                let mouse = Particle {
+                    x: mx / 8. - 10.,
+                    y: my / 8.,
+                    r: 4.,
+                    dx: 0.,
+                    dy: 0.,
+                    rgba: [255; 4],
+                };
+
+                particle.update(mx / 8. - 10., my / 8.);
+                //mouse.draw(pixels.get_frame());
+            });
+
             if pixels
                 .render()
                 .map_err(|e| error!("pixels.render() failed: {}", e))
@@ -134,8 +146,9 @@ async fn run() {
                 pixels.resize_surface(size.width, size.height);
             }
 
+            particle.draw(pixels.get_frame());
+
             // Update internal state and request a redraw
-            world.update();
             window.request_redraw();
         }
     });
@@ -145,33 +158,30 @@ impl Particle {
     /// Create a new `World` instance that can draw a moving box.
     fn new(x: i16, y: i16) -> Self {
         Self {
-            x,
-            y,
-            r: 6,
-            velocity_x: 1,
-            velocity_y: 1,
+            x: x as f32,
+            y: y as f32,
+            r: 10.,
+            dx: 1.,
+            dy: 1.,
+            rgba: [0, 100, 100, 255],
         }
     }
 
     /// Update the `World` internal state; bounce the box around the screen.
-    fn update(&mut self) {
-        use winit_input_helper::WinitInputHelper;
-        let mut input = WinitInputHelper::new();
-
-        input.mouse().map(|(mx, my)| {
-            self.x = (mx as i16).min((WIDTH - 20) as i16);
-            self.y = (my as i16).min((HEIGHT - 20) as i16);
-        });
-
-        if self.x + self.r > WIDTH as i16 || self.x - self.r < 0 {
-            self.velocity_x *= -1;
+    fn update(&mut self, tx: f32, ty: f32) {
+        if self.x + self.r > WIDTH as f32 || self.x - self.r < 0. {
+            self.dx *= -1.;
         }
-        if self.y + self.r > HEIGHT as i16 || self.y - self.r < 0 {
-            self.velocity_y *= -1;
+        if self.y + self.r > HEIGHT as f32 || self.y - self.r < 0. {
+            self.dy *= -1.;
         }
+        self.dx += tx - self.x;
+        self.dy += ty - self.y;
+        self.dx *= 0.05;
+        self.dy *= 0.05;
 
-        self.x += self.velocity_x;
-        self.y += self.velocity_y;
+        self.x += self.dx;
+        self.y += self.dy;
     }
 
     /// Draw the `World` state to the frame buffer.
@@ -179,17 +189,20 @@ impl Particle {
     /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
     fn draw(&self, frame: &mut [u8]) {
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let x = (i % WIDTH as usize) as i16;
-            let y = (i / WIDTH as usize) as i16;
+            //let i = i * 4;
+            let x = (i % WIDTH as usize) as f32;
+            let y = (i as f32 - x) / WIDTH as f32;
 
-            let inside_the_box =
-                ((x as f32 - self.x as f32).powi(2) + (y as f32 - self.y as f32).powi(2)).sqrt()
-                    < self.r as f32;
+            let delta = ((x - self.x).powi(2) + (y - self.y).powi(2)).sqrt();
+            let inside_the_box = delta < self.r;
 
-            let rgba = if inside_the_box {
-                [0x5e, 0x48, 0xe8, 0xff]
+            let mut rgba = self.rgba;
+            if inside_the_box {
+                for n in 0..4 {
+                    *unsafe { rgba.get_unchecked_mut(n) } *= delta as u8
+                }
             } else {
-                [0x48, 0xb2, 0xe8, 0x00]
+                continue;
             };
 
             pixel.copy_from_slice(&rgba);
