@@ -164,7 +164,7 @@ impl Particle {
             r: 10.,
             dx: 1.,
             dy: 1.,
-            rgba: [0, 100, 100, 255],
+            rgba: [0, 1, 1, 255],
         }
     }
 
@@ -201,7 +201,7 @@ impl Particle {
             if inside_the_box {
                 for n in 0..4 {
                     *unsafe { rgba.get_unchecked_mut(n) } *=
-                        ((self.r - delta) / self.r * 255.) as u8
+                        ((self.r - delta) / self.r * 300.) as u8
                 }
             } else {
                 continue;
