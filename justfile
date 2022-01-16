@@ -4,7 +4,7 @@ serve package: (build package)
 build package:
     mkdir -p ./target/{{package}}/
     cp ./index.html ./target/{{package}}/
-    cargo build --release --package {{package}} --target wasm32-unknown-unknown --features web
+    cargo build --release --package {{package}} --target wasm32-unknown-unknown --features web -j8
     wasm-bindgen --target web --no-typescript --out-dir ./target/{{package}}/ ./target/wasm32-unknown-unknown/release/{{package}}.wasm
 
 clean package:

@@ -110,16 +110,17 @@ async fn run() {
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
             input.mouse().map(|(mx, my)| {
+                let (mx, my) = pixels.window_pos_to_pixel((mx, my)).unwrap_or((0, 0));
                 let mouse = Particle {
-                    x: mx / 8. - 10.,
-                    y: my / 8.,
+                    x: mx as f32,
+                    y: my as f32,
                     r: 4.,
                     dx: 0.,
                     dy: 0.,
                     rgba: [255; 4],
                 };
 
-                particle.update(mx / 8. - 10., my / 8.);
+                particle.update(mx as f32, my as f32);
                 //mouse.draw(pixels.get_frame());
             });
 
@@ -175,10 +176,10 @@ impl Particle {
         if self.y + self.r > HEIGHT as f32 || self.y - self.r < 0. {
             self.dy *= -1.;
         }
-        self.dx += tx - self.x;
-        self.dy += ty - self.y;
-        self.dx *= 0.05;
-        self.dy *= 0.05;
+        self.dx += (tx - self.x) / 2.;
+        self.dy += (ty - self.y) / 2.;
+        self.dx *= 0.1;
+        self.dy *= 0.1;
 
         self.x += self.dx;
         self.y += self.dy;
@@ -199,7 +200,8 @@ impl Particle {
             let mut rgba = self.rgba;
             if inside_the_box {
                 for n in 0..4 {
-                    *unsafe { rgba.get_unchecked_mut(n) } *= delta as u8
+                    *unsafe { rgba.get_unchecked_mut(n) } *=
+                        ((self.r - delta) / self.r * 255.) as u8
                 }
             } else {
                 continue;
