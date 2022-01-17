@@ -21,6 +21,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = {version = "0.3", features = ["MouseEvent"]}
 env_logger = "0.9"
 pollster = "0.2"
+lazy_static = "1.4.0"
 
 #[profile.release]
 #lto = true

@@ -4,11 +4,31 @@ use log::error;
 use pixels::{Pixels, SurfaceTexture};
 use std::rc::Rc;
 //use web_sys;
+use lazy_static::*;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
+
+lazy_static! {
+    static ref ORBIT: ([f32; 255], [f32; 255]) = {
+        let mut proton_x = [0f32; 255];
+        let mut proton_y = [0f32; 255];
+        for n in 0..255 {
+            proton_x[n] = (n as f32 / 255. * 16. * std::f32::consts::PI).sin() * 10.;
+            proton_y[n] = (n as f32 / 255. * 16. * std::f32::consts::PI).cos() * 10.;
+        }
+        (proton_x, proton_y)
+    };
+}
+
+fn orbit_x(frame: u8, shell: f32) -> f32 {
+    unsafe { WIDTH as f32 / 2. + ORBIT.0.get_unchecked(frame as usize) * shell }
+}
+fn orbit_y(frame: u8, shell: f32) -> f32 {
+    unsafe { HEIGHT as f32 / 2. + ORBIT.1.get_unchecked(frame as usize) * shell }
+}
 
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
@@ -21,6 +41,26 @@ struct Particle {
     dx: f32,
     dy: f32,
     rgba: [u8; 4],
+}
+
+struct Electron {
+    p: Particle,
+    shell: u8,
+}
+
+impl Electron {
+    fn new(shell: u8) -> Self {
+        Self {
+            p: Particle::new(16, 16),
+            shell,
+        }
+    }
+
+    fn update(&mut self, frame: u8) {
+        let x = orbit_x(frame, self.shell as f32);
+        let y = orbit_y(frame, self.shell as f32);
+        self.p.update(x, y)
+    }
 }
 
 fn main() {
@@ -105,21 +145,10 @@ async fn run() {
             .expect("Pixels error")
     };
 
-    let mut electron = Particle::new(16, 16);
+    let mut electrons = [Electron::new(1), Electron::new(2), Electron::new(4)];
     let mut proton = Particle::new(WIDTH as i16 / 2, HEIGHT as i16 / 2);
     proton.rgba = [0xff, 0xaa, 0x00, 0xff];
     let mut frame = 0u8;
-
-    let mut proton_x = [0f32; 255];
-    let mut proton_y = [0f32; 255];
-    for n in 0..255 {
-        unsafe {
-            *proton_x.get_unchecked_mut(n) =
-                WIDTH as f32 / 2. + (n as f32 / 255. * 16. * std::f32::consts::PI).sin() * 20.;
-            *proton_y.get_unchecked_mut(n) =
-                HEIGHT as f32 / 2. + (n as f32 / 255. * 16. * std::f32::consts::PI).cos() * 20.;
-        }
-    }
 
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
@@ -129,17 +158,15 @@ async fn run() {
                 n2 -= 2;
                 *n = n2 * (n2 < *n) as u8;
             });
-            input.mouse().map(|(mx, my)| {
-                //let (mx, my) = pixels.window_pos_to_pixel((mx, my)).unwrap_or((0, 0));
+            //input.mouse().map(|(mx, my)| {
+            //    //let (mx, my) = pixels.window_pos_to_pixel((mx, my)).unwrap_or((0, 0));
 
-                //mouse.draw(pixels.get_frame());
-            });
+            //    //mouse.draw(pixels.get_frame());
+            //});
 
-            unsafe {
-                proton.x = *proton_x.get_unchecked(frame as usize);
-                proton.y = *proton_y.get_unchecked(frame as usize);
-            }
-            electron.update(proton.x, proton.y);
+            proton.x = orbit_x(frame, 1.);
+            proton.y = orbit_y(frame, 1.);
+            electrons.iter_mut().for_each(|e| e.update(frame));
             frame += 1;
 
             if pixels
@@ -166,7 +193,7 @@ async fn run() {
             }
 
             proton.draw(pixels.get_frame());
-            electron.draw(pixels.get_frame());
+            electrons.iter().for_each(|e| e.p.draw(pixels.get_frame()));
 
             // Update internal state and request a redraw
             window.request_redraw();
@@ -203,11 +230,11 @@ impl Particle {
             dy *= -5.;
         }
 
-        self.dx += dx * 0.025;
-        self.dy += dy * 0.025;
+        self.dx += dx * 0.03;
+        self.dy += dy * 0.03;
 
-        self.dx *= 0.99;
-        self.dy *= 0.99;
+        self.dx *= 0.94;
+        self.dy *= 0.94;
 
         self.x += self.dx;
         self.y += self.dy;

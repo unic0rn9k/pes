@@ -860,6 +860,7 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "env_logger",
+ "lazy_static",
  "log",
  "pixels",
  "pollster",
