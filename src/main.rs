@@ -124,7 +124,11 @@ async fn run() {
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
-            pixels.get_frame().iter_mut().for_each(|n| *n -= 2);
+            pixels.get_frame().iter_mut().for_each(|n| {
+                let mut n2 = *n;
+                n2 -= 2;
+                *n = n2 * (n2 < *n) as u8;
+            });
             input.mouse().map(|(mx, my)| {
                 //let (mx, my) = pixels.window_pos_to_pixel((mx, my)).unwrap_or((0, 0));
 
