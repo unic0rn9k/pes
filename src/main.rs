@@ -105,24 +105,38 @@ async fn run() {
             .expect("Pixels error")
     };
 
-    let mut particle = Particle::new(16, 16);
+    let mut electron = Particle::new(16, 16);
+    let mut proton = Particle::new(WIDTH as i16 / 2, HEIGHT as i16 / 2);
+    proton.rgba = [0xff, 0xaa, 0x00, 0xff];
+    let mut frame = 0u8;
+
+    let mut proton_x = [0f32; 255];
+    let mut proton_y = [0f32; 255];
+    for n in 0..255 {
+        unsafe {
+            *proton_x.get_unchecked_mut(n) =
+                WIDTH as f32 / 2. + (n as f32 / 255. * 16. * std::f32::consts::PI).sin() * 20.;
+            *proton_y.get_unchecked_mut(n) =
+                HEIGHT as f32 / 2. + (n as f32 / 255. * 16. * std::f32::consts::PI).cos() * 20.;
+        }
+    }
+
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
+            pixels.get_frame().iter_mut().for_each(|n| *n -= 2);
             input.mouse().map(|(mx, my)| {
-                let (mx, my) = pixels.window_pos_to_pixel((mx, my)).unwrap_or((0, 0));
-                let mouse = Particle {
-                    x: mx as f32,
-                    y: my as f32,
-                    r: 4.,
-                    dx: 0.,
-                    dy: 0.,
-                    rgba: [255; 4],
-                };
+                //let (mx, my) = pixels.window_pos_to_pixel((mx, my)).unwrap_or((0, 0));
 
-                particle.update(mx as f32, my as f32);
                 //mouse.draw(pixels.get_frame());
             });
+
+            unsafe {
+                proton.x = *proton_x.get_unchecked(frame as usize);
+                proton.y = *proton_y.get_unchecked(frame as usize);
+            }
+            electron.update(proton.x, proton.y);
+            frame += 1;
 
             if pixels
                 .render()
@@ -147,7 +161,8 @@ async fn run() {
                 pixels.resize_surface(size.width, size.height);
             }
 
-            particle.draw(pixels.get_frame());
+            proton.draw(pixels.get_frame());
+            electron.draw(pixels.get_frame());
 
             // Update internal state and request a redraw
             window.request_redraw();
@@ -162,8 +177,8 @@ impl Particle {
             x: x as f32,
             y: y as f32,
             r: 10.,
-            dx: 1.,
-            dy: 1.,
+            dx: 10.,
+            dy: 0.,
             rgba: [0, 1, 1, 255],
         }
     }
@@ -176,10 +191,19 @@ impl Particle {
         if self.y + self.r > HEIGHT as f32 || self.y - self.r < 0. {
             self.dy *= -1.;
         }
-        self.dx += (tx - self.x) / 2.;
-        self.dy += (ty - self.y) / 2.;
-        self.dx *= 0.1;
-        self.dy *= 0.1;
+        let mut dx = tx - self.x;
+        let mut dy = ty - self.y;
+
+        if dx.powi(2) + dy.powi(2) < self.r.powi(2) {
+            dx *= -5.;
+            dy *= -5.;
+        }
+
+        self.dx += dx * 0.025;
+        self.dy += dy * 0.025;
+
+        self.dx *= 0.99;
+        self.dy *= 0.99;
 
         self.x += self.dx;
         self.y += self.dy;
@@ -190,7 +214,6 @@ impl Particle {
     /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
     fn draw(&self, frame: &mut [u8]) {
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            //let i = i * 4;
             let x = (i % WIDTH as usize) as f32;
             let y = (i as f32 - x) / WIDTH as f32;
 
