@@ -4,6 +4,7 @@ use log::error;
 use pixels::{Pixels, SurfaceTexture};
 use std::rc::Rc;
 //use web_sys;
+use font8x8::BASIC_FONTS as FONT;
 use lazy_static::*;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
