@@ -4,7 +4,6 @@ use log::error;
 use pixels::{Pixels, SurfaceTexture};
 use std::rc::Rc;
 //use web_sys;
-use font8x8::BASIC_FONTS as FONT;
 use lazy_static::*;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
@@ -12,17 +11,52 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
+type Rgba = [u8; 4];
+
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
 const SHELL_SPACE: f32 = 20.;
+const ENERGY_IN_BRINT_SHELL: &'static [f32] = &[f32::NAN, -13.6, -3.4, -1.5, -0.85, -0.54, -0.38];
+const ELECTRON_COLOR: Rgba = [0x00, 0x11, 0x11, 0xff];
+const SELECTED_COLOR: Rgba = [0x11, 0x11, 0x22, 0xff];
+
+fn render_text(x: usize, y: usize, txt: &str, buffer: &mut [u8]) {
+    use font8x8::UnicodeFonts;
+    use font8x8::BASIC_FONTS as FONT;
+
+    unsafe {
+        for (i, c) in txt.chars().enumerate() {
+            for (j, row_bits) in FONT.get(c).unwrap_unchecked().iter().enumerate() {
+                for k in 0..8 {
+                    let bit = *row_bits & 1 << k;
+                    let point = (x + i * 8 + k + (y + j) * WIDTH as usize) * 4;
+                    if point + 4 >= buffer.len() {
+                        return;
+                    }
+
+                    match bit {
+                        0 => buffer[point..point + 4].copy_from_slice(&[0, 0, 0, 255]),
+                        _ => buffer[point..point + 4].copy_from_slice(&[255; 4]),
+                    }
+                }
+            }
+        }
+    }
+}
+
+macro_rules! render_text {
+    ($x: expr, $y: expr, $buffer: expr, $($txt: tt)*) => {
+        render_text($x, $y, &format!($($txt)*), $buffer)
+    };
+}
 
 lazy_static! {
     static ref ORBIT: ([f32; 255], [f32; 255]) = {
         let mut proton_x = [0f32; 255];
         let mut proton_y = [0f32; 255];
         for n in 0..255 {
-            proton_x[n] = (n as f32 / 255. * 16. * std::f32::consts::PI).sin() * SHELL_SPACE;
-            proton_y[n] = (n as f32 / 255. * 16. * std::f32::consts::PI).cos() * SHELL_SPACE;
+            proton_x[n] = (n as f32 / 255. * 2. * std::f32::consts::PI).sin() * SHELL_SPACE;
+            proton_y[n] = (n as f32 / 255. * 2. * std::f32::consts::PI).cos() * SHELL_SPACE;
         }
         (proton_x, proton_y)
     };
@@ -42,7 +76,7 @@ struct Particle {
     r: f32,
     dx: f32,
     dy: f32,
-    rgba: [u8; 4],
+    rgba: Rgba,
 }
 
 struct Electron {
@@ -61,7 +95,19 @@ impl Electron {
     fn update(&mut self, frame: u8) {
         let x = orbit_x(frame, self.shell as f32);
         let y = orbit_y(frame, self.shell as f32);
+
         self.p.update(x, y)
+    }
+
+    fn draw(&self, frame: &mut [u8]) {
+        let ev = if let Some(ev) = ENERGY_IN_BRINT_SHELL.get(self.shell as usize) {
+            ev
+        } else {
+            return;
+        };
+
+        self.p.draw(frame);
+        //render_text!(self.p.x as usize, self.p.y as usize, frame, "{ev}eV");
     }
 }
 
@@ -147,13 +193,9 @@ async fn run() {
             .expect("Pixels error")
     };
 
-    let mut electrons = [
-        Electron::new(1),
-        Electron::new(2),
-        Electron::new(3),
-        Electron::new(4),
-    ];
-    let mut frame = 0u8;
+    let mut electrons = vec![Electron::new(1), Electron::new(2), Electron::new(4)];
+    let mut frame: u8 = 0;
+    let mut selected_electron = 0;
 
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
@@ -176,6 +218,20 @@ async fn run() {
         // Handle input events
         if input.update(&event) {
             // Close events
+            if input.key_pressed(VirtualKeyCode::Space) {
+                electrons[selected_electron].p.rgba = ELECTRON_COLOR;
+                selected_electron += 1;
+                if selected_electron >= electrons.len() {
+                    selected_electron = 0
+                }
+                electrons[selected_electron].p.rgba = SELECTED_COLOR;
+            }
+            if input.key_pressed(VirtualKeyCode::J) {
+                electrons[selected_electron].shell -= 1;
+            }
+            if input.key_pressed(VirtualKeyCode::K) {
+                electrons[selected_electron].shell += 1;
+            }
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;
                 return;
@@ -186,30 +242,32 @@ async fn run() {
                 pixels.resize_surface(size.width, size.height);
             }
 
-            pixels
-                .get_frame()
-                .iter_mut()
-                .enumerate()
-                .for_each(|(n, p)| {
-                    let mut p2 = *p;
-                    p2 -= 4;
-                    *p = p2 * (p2 < *p) as u8;
-                    let x = (n / 4) % WIDTH as usize;
-                    let y = (n / 4 - x) / WIDTH as usize;
-                    let x = WIDTH as isize / 2 - x as isize;
-                    let y = HEIGHT as isize / 2 - y as isize;
-                    let delta = ((x * x + y * y) as f32).sqrt() as usize;
+            let frame = pixels.get_frame();
+            frame.iter_mut().enumerate().for_each(|(n, p)| {
+                let mut p2 = *p;
+                p2 -= 4;
+                *p = p2 * (p2 < *p) as u8;
+                let x = (n / 4) % WIDTH as usize;
+                let y = (n / 4 - x) / WIDTH as usize;
+                let x = WIDTH as isize / 2 - x as isize;
+                let y = HEIGHT as isize / 2 - y as isize;
+                let delta = ((x * x + y * y) as f32).sqrt() as usize;
 
-                    if delta % SHELL_SPACE as usize == 0 && delta < 100 {
-                        *p = 70;
-                    }
-                });
+                if delta % SHELL_SPACE as usize == 0 && delta < 100 {
+                    *p = 70;
+                }
+            });
 
             let mut proton = Particle::new(WIDTH as i16 / 2, HEIGHT as i16 / 2);
-            proton.rgba = [0xff, 0xaa, 0x00, 0xff];
-            proton.draw(pixels.get_frame());
+            proton.rgba = [0xdd, 0xaa, 0x11, 0xff];
+            proton.draw(frame);
 
-            electrons.iter().for_each(|e| e.p.draw(pixels.get_frame()));
+            electrons.iter().for_each(|e| e.draw(frame));
+
+            let ev = ENERGY_IN_BRINT_SHELL
+                .get(electrons[selected_electron].shell as usize)
+                .unwrap_or(&f32::NAN);
+            render_text!(10, 10, frame, "Highlighted electron's energy: {ev} eV");
 
             // Update internal state and request a redraw
             window.request_redraw();
@@ -241,11 +299,11 @@ impl Particle {
         let dx = tx - self.x;
         let dy = ty - self.y;
 
-        self.dx += dx * 0.05;
-        self.dy += dy * 0.05;
+        self.dx += dx * 0.04;
+        self.dy += dy * 0.04;
 
-        self.dx *= 0.8;
-        self.dy *= 0.8;
+        self.dx *= 0.6;
+        self.dy *= 0.6;
 
         self.x += self.dx;
         self.y += self.dy;
