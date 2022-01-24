@@ -2,6 +2,7 @@
 
 use log::error;
 use pixels::{Pixels, SurfaceTexture};
+use std::cell::RefCell;
 use std::rc::Rc;
 //use web_sys;
 use lazy_static::*;
@@ -19,6 +20,53 @@ const SHELL_SPACE: f32 = 20.;
 const ENERGY_IN_BRINT_SHELL: &'static [f32] = &[f32::NAN, -13.6, -3.4, -1.5, -0.85, -0.54, -0.38];
 const ELECTRON_COLOR: Rgba = [0x00, 0x11, 0x11, 0xff];
 const SELECTED_COLOR: Rgba = [0x11, 0x11, 0x22, 0xff];
+
+static mut STATE: u32 = 777;
+
+fn rand() -> u32 {
+    unsafe {
+        STATE = STATE * 1664525 + 1013904223;
+        return STATE >> 24;
+    }
+}
+
+impl Random for u8 {
+    fn random() -> u8 {
+        (rand() % 255) as u8
+    }
+}
+
+trait Random {
+    fn random() -> Self;
+}
+
+fn random_bytes<const LEN: usize>() -> [u8; LEN] {
+    let mut tmp = [0; LEN];
+    for n in 0..LEN {
+        tmp[n] = u8::random()
+    }
+    tmp
+}
+
+macro_rules! impl_rand {
+    ($($t: ty),*) => {
+        $(
+            impl Random for $t {
+                fn random() -> $t {
+                    <$t>::from_ne_bytes(random_bytes())
+                }
+            }
+        )*
+    };
+}
+
+impl_rand!(f32, f64, u32, u64, usize, u16, isize, i8, i16, i32, i64);
+
+impl Random for bool {
+    fn random() -> bool {
+        rand() % 2 == 0
+    }
+}
 
 fn render_text(x: usize, y: usize, txt: &str, buffer: &mut [u8]) {
     use font8x8::UnicodeFonts;
@@ -69,7 +117,41 @@ fn orbit_y(frame: u8, shell: f32) -> f32 {
     unsafe { HEIGHT as f32 / 2. + ORBIT.1.get_unchecked(frame as usize) * shell }
 }
 
-/// Representation of the application state. In this example, a box will bounce around the screen.
+trait RenderableParticle {
+    type UpdateArgs;
+    type NewArgs;
+
+    fn update(&mut self, args: Self::UpdateArgs) -> bool;
+    fn draw(&self, frame: &mut [u8]);
+    fn new(args: Self::NewArgs) -> Self;
+    fn x(&self) -> f32;
+    fn y(&self) -> f32;
+}
+
+impl<T: RenderableParticle<UpdateArgs = U, NewArgs = N>, U, N> RenderableParticle
+    for Rc<RefCell<T>>
+{
+    type UpdateArgs = U;
+    type NewArgs = N;
+
+    fn update(&mut self, args: U) -> bool {
+        self.as_ref().borrow_mut().update(args)
+    }
+    fn new(args: N) -> Self {
+        Rc::new(T::new(args).into())
+    }
+    fn draw(&self, frame: &mut [u8]) {
+        self.as_ref().borrow().draw(frame)
+    }
+    fn x(&self) -> f32 {
+        self.as_ref().borrow().x()
+    }
+    fn y(&self) -> f32 {
+        self.as_ref().borrow().y()
+    }
+}
+
+#[derive(Clone, Copy)]
 struct Particle {
     x: f32,
     y: f32,
@@ -79,35 +161,114 @@ struct Particle {
     rgba: Rgba,
 }
 
+#[derive(Clone)]
 struct Electron {
-    p: Particle,
+    p: Rc<RefCell<Particle>>,
     shell: u8,
 }
 
-impl Electron {
+impl RenderableParticle for Electron {
+    type UpdateArgs = u8;
+    type NewArgs = u8;
+
     fn new(shell: u8) -> Self {
         Self {
-            p: Particle::new(16, 16),
+            p: Rc::new(Particle::new((16, 16)).into()),
             shell,
         }
     }
 
-    fn update(&mut self, frame: u8) {
+    fn update(&mut self, frame: u8) -> bool {
         let x = orbit_x(frame, self.shell as f32);
         let y = orbit_y(frame, self.shell as f32);
 
-        self.p.update(x, y)
+        self.p.borrow_mut().update((x, y));
+        false
     }
 
     fn draw(&self, frame: &mut [u8]) {
-        let ev = if let Some(ev) = ENERGY_IN_BRINT_SHELL.get(self.shell as usize) {
-            ev
+        self.p.as_ref().borrow().draw(frame);
+    }
+
+    fn x(&self) -> f32 {
+        self.p.x()
+    }
+    fn y(&self) -> f32 {
+        self.p.y()
+    }
+}
+
+#[derive(Clone)]
+struct Photon {
+    p: Particle,
+    t: Rc<RefCell<Electron>>,
+}
+
+impl RenderableParticle for Photon {
+    type UpdateArgs = ();
+    type NewArgs = (Rc<RefCell<Electron>>, bool);
+
+    fn new(args: (Rc<RefCell<Electron>>, bool)) -> Self {
+        let is_leaving = args.1;
+        let t = args.0;
+
+        let mut x = 10.;
+        let mut y = 10.;
+
+        let on_x_edge = bool::random();
+        if bool::random() {
+            if on_x_edge {
+                x = WIDTH as f32 - 10.;
+            } else {
+                y = HEIGHT as f32 - 10.;
+            }
+        }
+        if on_x_edge {
+            y = f32::random() % HEIGHT as f32;
         } else {
-            return;
+            x = f32::random() % WIDTH as f32;
+        }
+
+        let rp = Particle {
+            x,
+            y,
+            dx: 0.,
+            dy: 0.,
+            rgba: [1, 1, 0, 1],
+            r: 4.0,
         };
 
-        self.p.draw(frame);
-        //render_text!(self.p.x as usize, self.p.y as usize, frame, "{ev}eV");
+        let mut res = if is_leaving {
+            Self {
+                p: *t.as_ref().borrow().p.as_ref().borrow(),
+                t: Rc::new(RefCell::new(Electron {
+                    p: Rc::new(rp.into()),
+                    shell: 0,
+                })),
+            }
+        } else {
+            Self { p: rp, t }
+        };
+
+        res.p.rgba = [1, 1, 0, 1];
+        res
+    }
+    fn update(&mut self, _: ()) -> bool {
+        self.p.update((self.t.x(), self.t.y()));
+        let collided = (self.p.x() - self.t.x()).hypot(self.p.y() - self.t.y()) < 20.;
+        if collided {
+            self.t.borrow_mut().shell -= 1;
+        }
+        collided
+    }
+    fn draw(&self, frame: &mut [u8]) {
+        self.p.draw(frame)
+    }
+    fn x(&self) -> f32 {
+        self.p.x()
+    }
+    fn y(&self) -> f32 {
+        self.p.y()
     }
 }
 
@@ -193,7 +354,8 @@ async fn run() {
             .expect("Pixels error")
     };
 
-    let mut electrons = vec![Electron::new(1), Electron::new(2), Electron::new(4)];
+    let mut electrons = vec![Rc::new(RefCell::new(Electron::new(2)))];
+    let mut photons: Vec<Photon> = vec![];
     let mut frame: u8 = 0;
     let mut selected_electron = 0;
 
@@ -206,7 +368,19 @@ async fn run() {
             //    //mouse.draw(pixels.get_frame());
             //});
 
-            electrons.iter_mut().for_each(|e| e.update(frame));
+            electrons.iter_mut().for_each(|e| {
+                e.update(frame);
+            });
+            let mut delete_me = vec![];
+            for (n, p) in photons.iter_mut().enumerate() {
+                if p.update(()) {
+                    delete_me.push(n);
+                    p.t.as_ref().borrow_mut().shell -= 1;
+                }
+            }
+            for delete_me in delete_me {
+                photons.remove(delete_me);
+            }
             frame += 1;
 
             if pixels.render().is_err() {
@@ -219,18 +393,27 @@ async fn run() {
         if input.update(&event) {
             // Close events
             if input.key_pressed(VirtualKeyCode::Space) {
-                electrons[selected_electron].p.rgba = ELECTRON_COLOR;
+                electrons[selected_electron]
+                    .borrow_mut()
+                    .p
+                    .borrow_mut()
+                    .rgba = ELECTRON_COLOR;
                 selected_electron += 1;
                 if selected_electron >= electrons.len() {
                     selected_electron = 0
                 }
-                electrons[selected_electron].p.rgba = SELECTED_COLOR;
+                electrons[selected_electron]
+                    .borrow_mut()
+                    .p
+                    .borrow_mut()
+                    .rgba = SELECTED_COLOR;
             }
             if input.key_pressed(VirtualKeyCode::J) {
-                electrons[selected_electron].shell -= 1;
+                photons.push(Photon::new((electrons[selected_electron].clone(), false)))
             }
             if input.key_pressed(VirtualKeyCode::K) {
-                electrons[selected_electron].shell += 1;
+                photons.push(Photon::new((electrons[selected_electron].clone(), true)));
+                electrons[selected_electron].borrow_mut().shell += 1;
             }
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;
@@ -251,21 +434,22 @@ async fn run() {
                 let y = (n / 4 - x) / WIDTH as usize;
                 let x = WIDTH as isize / 2 - x as isize;
                 let y = HEIGHT as isize / 2 - y as isize;
-                let delta = ((x * x + y * y) as f32).sqrt() as usize;
+                let delta = (x as f32).hypot(y as f32) as usize;
 
                 if delta % SHELL_SPACE as usize == 0 && delta < 100 {
                     *p = 70;
                 }
             });
 
-            let mut proton = Particle::new(WIDTH as i16 / 2, HEIGHT as i16 / 2);
+            let mut proton = Particle::new((WIDTH as i16 / 2, HEIGHT as i16 / 2));
             proton.rgba = [0xdd, 0xaa, 0x11, 0xff];
             proton.draw(frame);
 
             electrons.iter().for_each(|e| e.draw(frame));
+            photons.iter().for_each(|e| e.draw(frame));
 
             let ev = ENERGY_IN_BRINT_SHELL
-                .get(electrons[selected_electron].shell as usize)
+                .get(electrons[selected_electron].as_ref().borrow().shell as usize)
                 .unwrap_or(&f32::NAN);
             render_text!(10, 10, frame, "Highlighted electron's energy: {ev} eV");
 
@@ -275,12 +459,14 @@ async fn run() {
     });
 }
 
-impl Particle {
-    /// Create a new `World` instance that can draw a moving box.
-    fn new(x: i16, y: i16) -> Self {
+impl RenderableParticle for Particle {
+    type NewArgs = (i16, i16);
+    type UpdateArgs = (f32, f32);
+
+    fn new(p: (i16, i16)) -> Self {
         Self {
-            x: x as f32,
-            y: y as f32,
+            x: p.0 as f32,
+            y: p.1 as f32,
             r: 4.,
             dx: 10.,
             dy: 0.,
@@ -289,35 +475,33 @@ impl Particle {
     }
 
     /// Update the `World` internal state; bounce the box around the screen.
-    fn update(&mut self, tx: f32, ty: f32) {
+    fn update(&mut self, t: (f32, f32)) -> bool {
         if self.x + self.r > WIDTH as f32 || self.x - self.r < 0. {
             self.dx *= -1.;
         }
         if self.y + self.r > HEIGHT as f32 || self.y - self.r < 0. {
             self.dy *= -1.;
         }
-        let dx = tx - self.x;
-        let dy = ty - self.y;
+        let dx = t.0 - self.x;
+        let dy = t.1 - self.y;
 
-        self.dx += dx * 0.04;
-        self.dy += dy * 0.04;
+        self.dx += dx * 0.06;
+        self.dy += dy * 0.06;
 
         self.dx *= 0.6;
         self.dy *= 0.6;
 
         self.x += self.dx;
         self.y += self.dy;
+        false
     }
 
-    /// Draw the `World` state to the frame buffer.
-    ///
-    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
     fn draw(&self, frame: &mut [u8]) {
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
             let x = (i % WIDTH as usize) as f32;
             let y = (i as f32 - x) / WIDTH as f32;
 
-            let delta = ((x - self.x).powi(2) + (y - self.y).powi(2)).sqrt();
+            let delta = (x - self.x).hypot(y - self.y);
             let inside_the_box = delta < self.r;
 
             let mut rgba = self.rgba;
@@ -332,5 +516,12 @@ impl Particle {
 
             pixel.copy_from_slice(&rgba);
         }
+    }
+
+    fn x(&self) -> f32 {
+        self.x
+    }
+    fn y(&self) -> f32 {
+        self.y
     }
 }
