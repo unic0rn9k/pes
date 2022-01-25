@@ -253,11 +253,7 @@ impl RenderableParticle for Photon {
     }
     fn update(&mut self, _: ()) -> bool {
         self.p.update((self.t.x(), self.t.y()));
-        let collided = (self.p.x() - self.t.x()).hypot(self.p.y() - self.t.y()) < 10.;
-        if collided {
-            self.t.borrow_mut().shell += 1;
-        }
-        collided
+        (self.p.x() - self.t.x()).hypot(self.p.y() - self.t.y()) < 10.
     }
     fn draw(&self, frame: &mut [u8]) {
         self.p.draw(frame)
