@@ -255,7 +255,7 @@ impl RenderableParticle for Photon {
         self.p.update((self.t.x(), self.t.y()));
         let collided = (self.p.x() - self.t.x()).hypot(self.p.y() - self.t.y()) < 10.;
         if collided {
-            self.t.borrow_mut().shell -= 1;
+            self.t.borrow_mut().shell += 1;
         }
         collided
     }
@@ -373,7 +373,7 @@ async fn run() {
             for (n, p) in photons.iter_mut().enumerate() {
                 if p.update(()) {
                     delete_me.push(n);
-                    p.t.as_ref().borrow_mut().shell -= 1;
+                    p.t.as_ref().borrow_mut().shell += 1;
                 }
             }
             for delete_me in delete_me {
@@ -411,7 +411,7 @@ async fn run() {
             }
             if input.key_pressed(VirtualKeyCode::K) {
                 photons.push(Photon::new((electrons[selected_electron].clone(), true)));
-                electrons[selected_electron].borrow_mut().shell += 1;
+                electrons[selected_electron].borrow_mut().shell -= 1;
             }
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;
