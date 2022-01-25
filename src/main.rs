@@ -72,20 +72,18 @@ fn render_text(x: usize, y: usize, txt: &str, buffer: &mut [u8]) {
     use font8x8::UnicodeFonts;
     use font8x8::BASIC_FONTS as FONT;
 
-    unsafe {
-        for (i, c) in txt.chars().enumerate() {
-            for (j, row_bits) in FONT.get(c).unwrap_unchecked().iter().enumerate() {
-                for k in 0..8 {
-                    let bit = *row_bits & 1 << k;
-                    let point = (x + i * 8 + k + (y + j) * WIDTH as usize) * 4;
-                    if point + 4 >= buffer.len() {
-                        return;
-                    }
+    for (i, c) in txt.chars().enumerate() {
+        for (j, row_bits) in FONT.get(c).unwrap().iter().enumerate() {
+            for k in 0..8 {
+                let bit = *row_bits & 1 << k;
+                let point = (x + i * 8 + k + (y + j) * WIDTH as usize) * 4;
+                if point + 4 >= buffer.len() {
+                    return;
+                }
 
-                    match bit {
-                        0 => buffer[point..point + 4].copy_from_slice(&[0, 0, 0, 255]),
-                        _ => buffer[point..point + 4].copy_from_slice(&[255; 4]),
-                    }
+                match bit {
+                    0 => buffer[point..point + 4].copy_from_slice(&[0, 0, 0, 255]),
+                    _ => buffer[point..point + 4].copy_from_slice(&[255; 4]),
                 }
             }
         }
